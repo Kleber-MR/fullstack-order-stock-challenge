@@ -1,0 +1,44 @@
+# ─── Python ────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Ambientes virtuais
+.venv/
+venv/
+env/
+ENV/
+
+# Variáveis de ambiente — NUNCA commitar
+.env
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Mypy
+.mypy_cache/
+
+# ─── Node / React ───────────────────────────────────────────────────────────
+node_modules/
+dist/
+build/
+.cache/
+
+# ─── IDE ────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# ─── Logs ───────────────────────────────────────────────────────────────────
+*.log
+logs/
