@@ -23,11 +23,10 @@ from app.schemas.order import (
 )
 from app.schemas.product import (
     ProductCreate,
-    ProductLowStockResponse,
-    ProductResponse,
     ProductUpdate,
+    ProductResponse,
+    ProductLowStockResponse,
 )
-
 __all__ = [
     # common
     "BaseResponse",

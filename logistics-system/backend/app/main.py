@@ -1,17 +1,10 @@
 """
-main.py — ponto de entrada da aplicação.
-
-Responsabilidades:
-  - Configurar logging por ambiente
-  - Criar a instância do FastAPI com metadados
-  - Configurar CORS
-  - Registrar exception handlers globais com resposta padronizada
-  - Verificar conexão com banco no startup — aborta se inacessível
-  - Registrar todos os routers com prefixo /api/v1
-  - Expor /health com status real do banco para Docker e load balancer
+main.py — versão de debug para capturar o erro 500.
+Após identificar o erro, remova as linhas print/traceback.
 """
 
 import logging
+import traceback as tb
 
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,7 +17,7 @@ from app.routers import dashboard_router, log_router, order_router, product_rout
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Logging — DEBUG em dev, INFO em produção
+# Logging
 # ─────────────────────────────────────────────────────────────────────────────
 
 logging.basicConfig(
@@ -44,19 +37,18 @@ app = FastAPI(
     title="Logistics System API",
     description="Gerenciamento de produtos, pedidos e logs de auditoria.",
     version="1.0.0",
-    # Swagger e ReDoc desabilitados em produção — não exponho contratos publicamente
     docs_url="/docs" if settings.ENVIRONMENT != "production" else None,
     redoc_url="/redoc" if settings.ENVIRONMENT != "production" else None,
 )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CORS — permite o frontend React acessar a API em desenvolvimento
+# CORS
 # ─────────────────────────────────────────────────────────────────────────────
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # porta padrão do Vite
+    allow_origins=["http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -64,19 +56,11 @@ app.add_middleware(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Exception handlers globais — respostas de erro padronizadas em toda a API
-#
-# Por que intercepto aqui e não deixo o FastAPI tratar sozinho?
-# Porque o formato padrão do FastAPI é diferente do meu ErrorResponse.
-# O frontend precisa de um contrato único — independente do endpoint que falhou.
+# Exception handlers globais
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
-    """
-    Intercepto todas as HTTPException lançadas nos services e routers.
-    404, 409, 400 — todos chegam aqui com o mesmo formato de saída.
-    """
     return JSONResponse(
         status_code=exc.status_code,
         content={
@@ -89,10 +73,6 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
 
 @app.exception_handler(ValidationError)
 async def validation_exception_handler(request: Request, exc: ValidationError) -> JSONResponse:
-    """
-    Erros de validação do Pydantic — 422 com detalhes de cada campo inválido.
-    Útil para o frontend mostrar erros inline nos formulários.
-    """
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={
@@ -106,24 +86,20 @@ async def validation_exception_handler(request: Request, exc: ValidationError) -
 
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    """
-    Captura qualquer erro não tratado — última linha de defesa.
-    Nunca exponho stack trace em produção.
-    O erro real aparece no log do servidor para investigação.
-    """
-    logger.exception("Erro não tratado: %s", exc)
+    import traceback
+    erro_completo = traceback.format_exc()
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
             "status_code": 500,
             "error": "internal_server_error",
-            "message": "Erro interno — contate o suporte",
+            "message": str(exc),          # ← mostra o erro real
+            "traceback": erro_completo,   # ← mostra o traceback completo
         },
     )
 
 
 def _status_para_tipo(status_code: int) -> str:
-    """Converte status code em string legível para o campo 'error'."""
     mapa = {
         400: "bad_request",
         401: "unauthorized",
@@ -142,11 +118,6 @@ def _status_para_tipo(status_code: int) -> str:
 
 @app.on_event("startup")
 async def on_startup() -> None:
-    """
-    Verifico a conexão com o banco antes de aceitar qualquer requisição.
-    Se o banco estiver inacessível prefiro abortar do que servir erros 500
-    para todos os clientes — fail fast é melhor que degradação silenciosa.
-    """
     logger.info("Iniciando aplicação [%s]...", settings.ENVIRONMENT)
     if not check_db_connection():
         logger.critical("Banco de dados inacessível. Abortando.")
@@ -156,7 +127,7 @@ async def on_startup() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Routers — todos prefixados com /api/v1
+# Routers
 # ─────────────────────────────────────────────────────────────────────────────
 
 API_PREFIX = "/api/v1"
@@ -168,10 +139,7 @@ app.include_router(dashboard_router, prefix=API_PREFIX)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Health check — usado pelo Docker healthcheck e pelo load balancer
-#
-# Retorna status real do banco — não só "ok" estático.
-# Se o banco cair depois do startup, o health reflete isso imediatamente.
+# Health check
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.get("/health", tags=["Infra"], summary="Status da aplicação e do banco")

@@ -12,7 +12,6 @@ Se eu precisar mudar a rota ou o status code, não toco no service.
 """
 
 from decimal import Decimal
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
@@ -32,10 +31,6 @@ router = APIRouter(prefix="/products", tags=["Produtos"])
 
 
 def get_service(db: Session = Depends(get_db)) -> ProductService:
-    """
-    Função de dependência — o FastAPI injeta a sessão do banco automaticamente.
-    Centralizo a criação do service aqui para não repetir em cada endpoint.
-    """
     return ProductService(db)
 
 
@@ -50,11 +45,6 @@ def criar_produto(
     dados: ProductCreate,
     service: ProductService = Depends(get_service),
 ) -> ProductResponse:
-    """
-    201 em criação bem-sucedida — não uso 200 aqui, semântica importa.
-    O schema valida os dados antes de chegar no service.
-    409 se SKU duplicado — tratado no service.
-    """
     return service.criar(dados)
 
 
@@ -73,10 +63,6 @@ def listar_produtos(
     in_stock: bool | None = Query(default=None, description="Apenas com estoque?"),
     service: ProductService = Depends(get_service),
 ) -> PaginatedResponse[ProductResponse]:
-    """
-    Query params opcionais — o service lida com None corretamente.
-    Limite máximo de 100 por requisição — proteção contra queries pesadas.
-    """
     return service.listar(
         skip=skip,
         limit=limit,
@@ -99,7 +85,7 @@ def listar_estoque_baixo(
 ) -> list[ProductLowStockResponse]:
     """
     Essa rota vem ANTES de /{produto_id} — se viesse depois, o FastAPI
-    tentaria converter 'low-stock' como UUID e daria 422.
+    tentaria converter 'low-stock' como int e daria 422.
     Ordem de declaração de rotas importa no FastAPI.
     """
     return service.listar_estoque_baixo(threshold)
@@ -111,13 +97,10 @@ def listar_estoque_baixo(
     summary="Buscar produto por ID",
 )
 def buscar_produto(
-    produto_id: UUID,
+    # CORRIGIDO: int (não UUID) — a PK do model Product é Integer autoincrement
+    produto_id: int,
     service: ProductService = Depends(get_service),
 ) -> ProductResponse:
-    """
-    UUID como path param — o FastAPI já valida o formato antes de chegar aqui.
-    404 se não encontrado — tratado no service.
-    """
     return service.buscar_por_id(produto_id)
 
 
@@ -125,15 +108,11 @@ def buscar_produto(
     "/{produto_id}",
     response_model=ProductResponse,
     summary="Atualizar produto parcialmente",
-    description="Atualiza apenas os campos enviados. SKU não pode ser alterado.",
+    description="Atualiza apenas os campos enviados.",
 )
 def atualizar_produto(
-    produto_id: UUID,
+    produto_id: int,
     dados: ProductUpdate,
     service: ProductService = Depends(get_service),
 ) -> ProductResponse:
-    """
-    PATCH para atualização parcial — não exige todos os campos.
-    PUT seria para substituição completa — não é o caso aqui.
-    """
     return service.atualizar(produto_id, dados)

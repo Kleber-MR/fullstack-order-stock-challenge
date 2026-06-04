@@ -5,8 +5,6 @@ Operações de pedido são as mais críticas do sistema.
 O router só orquestra — toda regra de negócio e atomicidade está no OrderService.
 """
 
-from uuid import UUID
-
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
@@ -37,11 +35,6 @@ def criar_pedido(
     dados: OrderCreate,
     service: OrderService = Depends(get_service),
 ) -> OrderResponse:
-    """
-    400 se estoque insuficiente em qualquer item.
-    404 se algum produto não existir.
-    Tudo transacional — ou cria completo ou não cria nada.
-    """
     return service.criar(dados)
 
 
@@ -65,10 +58,10 @@ def listar_pedidos(
     summary="Buscar pedido por ID",
 )
 def buscar_pedido(
-    pedido_id: UUID,
+    # CORRIGIDO: int (não UUID) — a PK do model Order é Integer autoincrement
+    pedido_id: int,
     service: OrderService = Depends(get_service),
 ) -> OrderResponse:
-    """404 se não encontrado — tratado no service."""
     return service.buscar_por_id(pedido_id)
 
 
@@ -82,11 +75,8 @@ def buscar_pedido(
     ),
 )
 def cancelar_pedido(
-    pedido_id: UUID,
+    # CORRIGIDO: int (não UUID) — a PK do model Order é Integer autoincrement
+    pedido_id: int,
     service: OrderService = Depends(get_service),
 ) -> OrderResponse:
-    """
-    Uso PATCH e não DELETE — o pedido não some, muda de status.
-    O estorno de estoque acontece na mesma transação do cancelamento.
-    """
     return service.cancelar(pedido_id)

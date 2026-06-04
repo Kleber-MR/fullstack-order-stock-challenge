@@ -1,12 +1,14 @@
 """
 Schema de Log — somente leitura.
 
-Logs são gerados internamente pelo sistema — nunca recebo log como entrada.
-São imutáveis por princípio: registro de auditoria não se edita, só acrescenta.
+Alinhado com o model real:
+  - id: int
+  - acao: str (valor do enum LogAction)
+  - detalhe: str
+  - data_criacao: datetime
 """
 
 from datetime import datetime
-from uuid import UUID
 
 from app.schemas.common import BaseResponse
 
@@ -14,12 +16,10 @@ from app.schemas.common import BaseResponse
 class LogResponse(BaseResponse):
     """
     Resposta de log de auditoria.
-    detalhes carrega contexto adicional em JSON — o que mudou, valores anteriores etc.
+    Logs são imutáveis — nunca recebo como entrada da API.
     """
 
-    id: UUID
-    entidade_tipo: str    # ex: "produto", "pedido"
-    entidade_id: UUID
-    acao: str             # ex: "criado", "estoque_atualizado", "pedido_cancelado"
-    detalhes: str | None  # JSON stringificado com contexto adicional
-    criado_em: datetime
+    id: int
+    acao: str
+    detalhe: str
+    data_criacao: datetime

@@ -1,9 +1,12 @@
 """
-DashboardService — agrega dados de múltiplos services em um snapshot.
+DashboardService — dados agregados para a tela de gestão.
 
-Não acesso o banco diretamente aqui.
-Chamo os métodos de dados dos outros services e monto a resposta final.
-Separar isso em um service próprio evita que o router precise orquestrar múltiplas chamadas.
+Adaptado para usar os métodos reais dos repositories
+e retornar os campos que o frontend espera:
+  - total_produtos
+  - pedidos_hoje
+  - valor_total_estoque
+  - itens_estoque_critico
 """
 
 from sqlalchemy.orm import Session
@@ -17,21 +20,26 @@ class DashboardService:
 
     def __init__(self, db: Session) -> None:
         self.db = db
-        self.produto_repo = ProductRepository(db)
-        self.pedido_repo = OrderRepository(db)
+        self.order_repo = OrderRepository(db)
+        self.product_repo = ProductRepository(db)
+
+    def get_summary(self) -> dict:
+        """Método original mantido."""
+        return {
+            "total_produtos": len(self.product_repo.get_all()),
+            "produtos_estoque_baixo": self.product_repo.count_low_stock(),
+        }
 
     def obter_resumo(self) -> DashboardResponse:
         """
-        Monto o resumo do dashboard com queries otimizadas no banco.
-        Cada método do repository executa uma query agregada — não processo em Python.
+        Retorna snapshot com os campos que o frontend espera.
+        Chamado pelo dashboard_router.
         """
-
-        # Busco o total de produtos com uma query de count — não trago todos os registros
-        _, total_produtos = self.produto_repo.listar(skip=0, limit=1)
+        _, total_produtos = self.product_repo.listar(skip=0, limit=1)
 
         return DashboardResponse(
             total_produtos=total_produtos,
-            pedidos_hoje=self.pedido_repo.contar_pedidos_hoje(),
-            valor_total_estoque=self.produto_repo.calcular_valor_total_estoque(),
-            itens_estoque_critico=self.produto_repo.contar_estoque_critico(threshold=10),
+            pedidos_hoje=self.order_repo.contar_pedidos_hoje(),
+            valor_total_estoque=self.product_repo.calcular_valor_total_estoque(),
+            itens_estoque_critico=self.product_repo.contar_estoque_critico(threshold=10),
         )
