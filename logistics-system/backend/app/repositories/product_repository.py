@@ -6,10 +6,11 @@ Recebo a sessão como parâmetro (injeção de dependência).
 Devolvo objetos do modelo ou None — nunca lanço HTTP exceptions aqui.
 """
 
+from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import func, select, update
+from sqlalchemy import cast, Date, func, select, update
 from sqlalchemy.orm import Session
 
 from app.models.product import Produto
@@ -18,7 +19,6 @@ from app.models.product import Produto
 class ProductRepository:
 
     def __init__(self, db: Session) -> None:
-        # Recebo a sessão pronta — não crio conexão aqui
         self.db = db
 
     def criar(self, produto: Produto) -> Produto:
@@ -27,22 +27,14 @@ class ProductRepository:
         (id, data_criacao) sem precisar fazer uma segunda query.
         """
         self.db.add(produto)
-        self.db.flush()          # executa o INSERT mas ainda não commita
-        self.db.refresh(produto) # traz de volta os campos gerados pelo banco
+        self.db.flush()
+        self.db.refresh(produto)
         return produto
 
-    def buscar_por_id(self, produto_id: UUID) -> Produto | None:
-        """
-        Busca simples por PK.
-        Retorno None deixa o service decidir se isso é 404 ou fluxo alternativo.
-        """
+    def buscar_por_id(self, produto_id: int) -> Produto | None:
         return self.db.get(Produto, produto_id)
 
     def buscar_por_sku(self, sku: str) -> Produto | None:
-        """
-        Uso antes de criar produto para garantir unicidade do SKU.
-        Se retornar algo, o service lança 409 Conflict.
-        """
         stmt = select(Produto).where(Produto.sku == sku.upper())
         return self.db.scalar(stmt)
 
@@ -63,7 +55,6 @@ class ProductRepository:
         stmt = select(Produto)
         count_stmt = select(func.count()).select_from(Produto)
 
-        # Aplico cada filtro só se ele foi passado — evito condições desnecessárias
         if search:
             filtro = (
                 Produto.nome.ilike(f"%{search}%") |
@@ -95,10 +86,6 @@ class ProductRepository:
         return list(produtos), total
 
     def listar_estoque_baixo(self, threshold: int) -> list[Produto]:
-        """
-        Produtos abaixo do limite configurável.
-        Threshold vem do endpoint — não hardcodo valor de negócio aqui.
-        """
         stmt = (
             select(Produto)
             .where(Produto.quantidade_estoque <= threshold)
@@ -106,20 +93,21 @@ class ProductRepository:
         )
         return list(self.db.scalars(stmt).all())
 
-    def atualizar(self, produto_id: UUID, dados: dict) -> Produto | None:
+    def atualizar(self, produto_id: int, dados: dict) -> Produto | None:
         """
-        Atualização parcial com dicionário de campos.
-        UPDATE direto — mais eficiente que buscar e modificar atributo a atributo.
+        CORRIGIDO: busca o objeto, aplica os campos e faz flush.
+        returning() não atualiza o cache da sessão — setattr é mais seguro.
         """
-        stmt = (
-            update(Produto)
-            .where(Produto.id == produto_id)
-            .values(**dados)
-            .returning(Produto)
-        )
-        return self.db.scalar(stmt)
+        produto = self.db.get(Produto, produto_id)
+        if not produto:
+            return None
+        for campo, valor in dados.items():
+            setattr(produto, campo, valor)
+        self.db.flush()
+        self.db.refresh(produto)
+        return produto
 
-    def decrementar_estoque(self, produto_id: UUID, quantidade: int) -> Produto | None:
+    def decrementar_estoque(self, produto_id: int, quantidade: int) -> Produto | None:
         """
         Operação atômica de decremento de estoque.
         O WHERE garante que só executa se tiver estoque suficiente.
@@ -130,18 +118,14 @@ class ProductRepository:
             update(Produto)
             .where(
                 Produto.id == produto_id,
-                Produto.quantidade_estoque >= quantidade,  # condição de guarda
+                Produto.quantidade_estoque >= quantidade,
             )
             .values(quantidade_estoque=Produto.quantidade_estoque - quantidade)
             .returning(Produto)
         )
         return self.db.scalar(stmt)
 
-    def incrementar_estoque(self, produto_id: UUID, quantidade: int) -> Produto | None:
-        """
-        Estorno de estoque ao cancelar pedido.
-        Operação inversa do decremento — também atômica.
-        """
+    def incrementar_estoque(self, produto_id: int, quantidade: int) -> Produto | None:
         stmt = (
             update(Produto)
             .where(Produto.id == produto_id)
@@ -151,16 +135,22 @@ class ProductRepository:
         return self.db.scalar(stmt)
 
     def calcular_valor_total_estoque(self) -> Decimal:
-        """
-        Soma preco * quantidade_estoque de todos os produtos.
-        Faço no banco — não trago todos os produtos pra Python só pra somar.
-        """
         stmt = select(func.sum(Produto.preco * Produto.quantidade_estoque))
         return self.db.scalar(stmt) or Decimal("0")
 
     def contar_estoque_critico(self, threshold: int = 10) -> int:
-        """Conta produtos abaixo do threshold — usado no dashboard."""
         stmt = select(func.count()).select_from(Produto).where(
             Produto.quantidade_estoque <= threshold
+        )
+        return self.db.scalar(stmt) or 0
+
+    def contar_pedidos_hoje(self) -> int:
+        """
+        CORRIGIDO: usa UTC para não depender do timezone da máquina.
+        cast(Date) garante compatibilidade com PostgreSQL.
+        """
+        hoje = datetime.now(timezone.utc).date()
+        stmt = select(func.count()).select_from(Produto).where(
+            cast(Produto.data_criacao, Date) == hoje
         )
         return self.db.scalar(stmt) or 0

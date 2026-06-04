@@ -11,7 +11,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.schemas.common import BaseResponse
 
@@ -21,19 +21,7 @@ class ItemPedidoCreate(BaseModel):
     Cada item dentro de um pedido.
     Valido quantidade mínima aqui — não deixo pedido de zero unidades entrar.
     """
-
-    from pydantic import BaseModel
-
-    produto_id: UUID = Field(..., description="ID do produto")
-    quantidade: int = Field(..., ge=1, description="Quantidade mínima é 1")
-
-
-# Preciso do BaseModel no escopo correto para ItemPedidoCreate
-from pydantic import BaseModel
-
-
-class ItemPedidoCreate(BaseModel):
-    produto_id: UUID = Field(..., description="ID do produto")
+    produto_id: int = Field(..., gt=0, description="ID do produto")
     quantidade: int = Field(..., ge=1, description="Quantidade mínima é 1")
 
 
@@ -43,10 +31,9 @@ class ItemPedidoResponse(BaseResponse):
     Calculo o subtotal aqui — o frontend não precisa recalcular.
     preco_unitario é snapshot histórico — o preço no momento da compra.
     """
-
-    produto_id: UUID
+    produto_id: int
     quantidade: int
-    preco_unitario: Decimal  # preço travado no momento do pedido
+    preco_unitario: Decimal
     subtotal: Decimal
 
 
@@ -55,7 +42,6 @@ class OrderCreate(BaseModel):
     Criação de pedido com lista de itens.
     Um pedido sem itens não faz sentido — valido antes de qualquer I/O.
     """
-
     itens: list[ItemPedidoCreate] = Field(
         ...,
         min_length=1,
@@ -81,8 +67,7 @@ class OrderResponse(BaseResponse):
     Resposta completa do pedido com todos os itens e valor total.
     O total é calculado no service e armazenado — não recalculo na serialização.
     """
-
-    id: UUID
+    id: int
     status: str
     itens: list[ItemPedidoResponse]
     valor_total: Decimal

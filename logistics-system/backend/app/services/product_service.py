@@ -34,17 +34,15 @@ class ProductService:
     def __init__(self, db: Session) -> None:
         self.db = db
         self.repo = ProductRepository(db)
-        self.log = LogService(db)  # injeto o LogService — todo service tem acesso a ele
+        self.log = LogService(db)
 
     def criar(self, dados: ProductCreate) -> ProductResponse:
         """
         Crio produto validando unicidade do SKU antes de qualquer INSERT.
         Se o SKU já existe lanço 409 — conflito de recurso.
-        Registro o log dentro da mesma transação — se o INSERT falhar, o log some junto.
+        Registro o log dentro da mesma transação.
         """
-        # Verifico unicidade antes de tentar inserir — erro claro antes de bater no banco
-        produto_existente = self.repo.buscar_por_sku(dados.sku)
-        if produto_existente:
+        if self.repo.buscar_por_sku(dados.sku):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Já existe um produto com o SKU '{dados.sku}'",
@@ -56,10 +54,8 @@ class ProductService:
             preco=dados.preco,
             quantidade_estoque=dados.quantidade_estoque,
         )
-
         produto = self.repo.criar(produto)
 
-        # Log dentro da mesma transação — atomicidade garantida
         self.log.registrar(
             entidade_tipo="produto",
             entidade_id=produto.id,
@@ -71,11 +67,7 @@ class ProductService:
         self.db.refresh(produto)
         return ProductResponse.model_validate(produto)
 
-    def buscar_por_id(self, produto_id: UUID) -> ProductResponse:
-        """
-        Busca por ID com 404 claro se não encontrar.
-        Leitura não gera log — só operações que modificam dados.
-        """
+    def buscar_por_id(self, produto_id: int) -> ProductResponse:
         produto = self.repo.buscar_por_id(produto_id)
         if not produto:
             raise HTTPException(
@@ -93,10 +85,6 @@ class ProductService:
         max_price: Decimal | None = None,
         in_stock: bool | None = None,
     ) -> PaginatedResponse[ProductResponse]:
-        """
-        Listagem com filtros compostos.
-        Devolvo o PaginatedResponse já montado — o router não precisa saber de paginação.
-        """
         produtos, total = self.repo.listar(
             skip=skip,
             limit=limit,
@@ -112,22 +100,18 @@ class ProductService:
             limit=limit,
         )
 
-    def atualizar(self, produto_id: UUID, dados: ProductUpdate) -> ProductResponse:
+    def atualizar(self, produto_id: int, dados: ProductUpdate) -> ProductResponse:
         """
         Atualização parcial — só processo os campos que vieram preenchidos.
         Registro o que mudou no log para rastreabilidade completa.
         """
-        # Verifico se o produto existe antes de tentar atualizar
-        produto_atual = self.repo.buscar_por_id(produto_id)
-        if not produto_atual:
+        if not self.repo.buscar_por_id(produto_id):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Produto '{produto_id}' não encontrado",
             )
 
-        # Monto o dict só com os campos que realmente vieram — evito sobrescrever com None
         campos = dados.model_dump(exclude_none=True)
-
         produto_atualizado = self.repo.atualizar(produto_id, campos)
 
         self.log.registrar(
@@ -142,16 +126,11 @@ class ProductService:
         return ProductResponse.model_validate(produto_atualizado)
 
     def listar_estoque_baixo(self, threshold: int = 10) -> list[ProductLowStockResponse]:
-        """
-        Alerta de estoque baixo com threshold configurável.
-        O threshold vem do endpoint — flexível para diferentes contextos.
-        """
         if threshold < 0:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Threshold não pode ser negativo",
             )
-
         produtos = self.repo.listar_estoque_baixo(threshold)
         return [
             ProductLowStockResponse(
@@ -159,19 +138,19 @@ class ProductService:
                 nome=p.nome,
                 sku=p.sku,
                 quantidade_estoque=p.quantidade_estoque,
-                threshold=threshold,  # devolvo o threshold usado — útil pro frontend
+                threshold=threshold,
             )
             for p in produtos
         ]
 
     def obter_dashboard_dados(self) -> dict:
         """
-        Dados agregados para o dashboard — delego ao repository as queries pesadas.
-        Devolvo dict porque o DashboardResponse é montado no service de dashboard
-        junto com os dados de pedidos.
+        CORRIGIDO: usa o total retornado pelo listar() — não traz registros
+        desnecessários só para contar.
         """
+        _, total_produtos = self.repo.listar(skip=0, limit=1)
         return {
-            "total_produtos": len(self.repo.listar(limit=1)[0]),  # só o count
+            "total_produtos": total_produtos,
             "valor_total_estoque": self.repo.calcular_valor_total_estoque(),
             "itens_estoque_critico": self.repo.contar_estoque_critico(threshold=10),
         }
