@@ -4,11 +4,16 @@ from sqlalchemy import engine_from_config, pool
 
 from alembic import context
 from app.core.database import Base
+from app.core.settings import settings
 from app.models.product import Product
 from app.models.order import Order, OrderItem
 from app.models.log import Log
 
 config = context.config
+
+# Usa DATABASE_URL das settings — lê do ambiente automaticamente via pydantic-settings
+# Garante que dentro do Docker usa db:5432 e não localhost do alembic.ini
+config.set_main_option("sqlalchemy.url", settings.DATABASE_URL_str)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
